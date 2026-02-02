@@ -1,0 +1,18 @@
+.pio/
+.vscode/
+.clangd/
+.ccls-cache/
+.DS_Store
+**/.cache/
+.venv/
+*.log
+*.tmp
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+
+# IDEs
+.idea/
+.history/
