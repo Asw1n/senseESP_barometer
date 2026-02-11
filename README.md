@@ -96,13 +96,32 @@ Configured in `platformio.ini`:
 - `esp32dev-ota`: OTA upload via `espota` to `barometer.local`
 
 ### Build / upload / monitor (CLI)
-From the repo root:
+The VS Code PlatformIO extension does **not** automatically put `pio` on your system `PATH`, so `pio` may not work in a regular terminal.
+
+From the repo root, use one of these options:
+
+**Option A (recommended): use the project venv**
 
 ```powershell
+./.venv/Scripts/Activate.ps1
+pio --version
 pio run
 pio run -t upload
 pio device monitor -b 115200
 ```
+
+**Option B: don’t activate anything (explicit interpreter)**
+
+```powershell
+./.venv/Scripts/python.exe -m platformio --version
+./.venv/Scripts/python.exe -m platformio run
+./.venv/Scripts/python.exe -m platformio run -t upload
+./.venv/Scripts/python.exe -m platformio device monitor -b 115200
+```
+
+**Option C: PlatformIO terminal inside VS Code**
+
+Run the command palette action `PlatformIO: New Terminal`, then `pio ...` will work in that terminal.
 
 ### Common local tweaks
 - Serial port: update `upload_port` and `monitor_port` in `platformio.ini` (currently `COM10`).
