@@ -78,7 +78,7 @@ class LevelToVolume : public sensesp::FloatTransform {
 // Single calibration controller with Status (read-only) and Action (apply)
 class CalibrationController : public sensesp::TransformBase {
  public:
-  enum class Status { Inactive, Initialized, Running };
+  enum class Status { Inactive, Running };
 
   explicit CalibrationController(const String& path)
       : sensesp::TransformBase(path), status_(Status::Inactive), running_(false) {
@@ -88,12 +88,6 @@ class CalibrationController : public sensesp::TransformBase {
         samples_.push_back(g_avg_raw);
       }
     });
-  }
-
-  void initialize() {
-    ESP_LOGI(__FILE__, "Calibration: Initialize");
-    samples_.clear();
-    status_ = Status::Initialized;
   }
 
   void start() {
@@ -119,8 +113,11 @@ class CalibrationController : public sensesp::TransformBase {
       if (total < 2) {
         // With only one sample, we cannot form a slope; still store endpoints as the same raw.
         float r = samples_[0];
+        // Also ensure full-range endpoints are present
+        g_curve->add_sample(sensesp::CurveInterpolator::Sample(0.0f, 0.0f));
         g_curve->add_sample(sensesp::CurveInterpolator::Sample(r, 0.0f));
         g_curve->add_sample(sensesp::CurveInterpolator::Sample(r, 1.0f));
+        g_curve->add_sample(sensesp::CurveInterpolator::Sample(4095.0f, 1.0f));
         bool saved = g_curve->save();
         ESP_LOGW(__FILE__, "Calibration: Only one sample; stored degenerate endpoints (save %s)", saved ? "OK" : "FAILED");
         status_ = Status::Inactive;
@@ -136,13 +133,17 @@ class CalibrationController : public sensesp::TransformBase {
       }
 
       if (max_raw <= min_raw) {
-        // Fallback: store degenerate endpoints
+        // Fallback: store degenerate endpoints with full-range guards
+        g_curve->add_sample(sensesp::CurveInterpolator::Sample(0.0f, 0.0f));
         g_curve->add_sample(sensesp::CurveInterpolator::Sample(min_raw, 0.0f));
         g_curve->add_sample(sensesp::CurveInterpolator::Sample(max_raw, 1.0f));
+        g_curve->add_sample(sensesp::CurveInterpolator::Sample(4095.0f, 1.0f));
       } else {
         // Explicit endpoints
+        g_curve->add_sample(sensesp::CurveInterpolator::Sample(0.0f, 0.0f));
         g_curve->add_sample(sensesp::CurveInterpolator::Sample(min_raw, 0.0f));
         g_curve->add_sample(sensesp::CurveInterpolator::Sample(max_raw, 1.0f));
+        g_curve->add_sample(sensesp::CurveInterpolator::Sample(4095.0f, 1.0f));
 
         // Add up to N normalized samples across the collected set
         const size_t M = (total < N) ? total : N;
@@ -179,9 +180,11 @@ class CalibrationController : public sensesp::TransformBase {
     samples_.clear();
     if (g_curve) {
       g_curve->clear_samples();
-      // Persist the cleared curve
+      // After clearing, add default endpoints like startup initializer
+      g_curve->add_sample(sensesp::CurveInterpolator::Sample(0.0f, 0.0f));
+      g_curve->add_sample(sensesp::CurveInterpolator::Sample(4095.0f, 1.0f));
       bool saved = g_curve->save();
-      ESP_LOGI(__FILE__, "Calibration: Curve clear save %s", saved ? "OK" : "FAILED");
+      ESP_LOGI(__FILE__, "Calibration: Curve reset to defaults (save %s)", saved ? "OK" : "FAILED");
     }
     status_ = Status::Inactive;
   }
@@ -200,9 +203,6 @@ class CalibrationController : public sensesp::TransformBase {
     if (act.length() == 1) {
       char c = act[0];
       switch (c) {
-        case 'I':
-          initialize();
-          break;
         case 'S':
           start();
           break;
@@ -222,9 +222,7 @@ class CalibrationController : public sensesp::TransformBase {
       }
     } else {
       // Backward compatibility with full-word actions
-      if (act == "INITIALIZE") {
-        initialize();
-      } else if (act == "START") {
+      if (act == "START") {
         start();
       } else if (act == "FINISH") {
         finish();
@@ -254,10 +252,9 @@ class CalibrationController : public sensesp::TransformBase {
     action["type"] = "string";
     action["title"] = "Action";
     action["description"] =
-      "Actions: N=None, I=Initialize, S=Start, F=Finish, A=Abort, C=Clear";
+      "Actions: N=None, S=Start, F=Finish, A=Abort, C=Clear";
     JsonArray en = action.createNestedArray("enum");
     en.add("N");
-    en.add("I");
     en.add("S");
     en.add("F");
     en.add("A");
@@ -273,8 +270,6 @@ class CalibrationController : public sensesp::TransformBase {
     switch (status_) {
       case Status::Inactive:
         return "Inactive";
-      case Status::Initialized:
-        return "Initialized";
       case Status::Running:
         return "Running";
     }
@@ -376,7 +371,6 @@ void setup() {
   // Read raw ADC counts directly using RepeatSensor
   auto xdb_input = std::make_shared<sensesp::RepeatSensor<float>>(xdb401_interval, [=]() {
     int counts = analogRead(xdb401_adc_pin);
-    int mv = analogReadMilliVolts(xdb401_adc_pin);
     return (float) counts;
   });
   auto xdb_avg = std::make_shared<sensesp::MovingAverage>(25);
@@ -462,7 +456,7 @@ void setup() {
   auto ci_cal = sensesp::ConfigItem(cal_controller);
   ci_cal->set_title("Fresh Water Tank Calibration");
   ci_cal->set_description(
-      "Use one-letter actions: N=None, I=Initialize, S=Start, F=Finish, A=Abort, C=Clear.");
+      "Use one-letter actions: N=None, S=Start, F=Finish, A=Abort, C=Clear.");
   g_config_items.push_back(ci_cal);
 
   // Start the app (this builds the UI and tabs)
